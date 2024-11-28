@@ -37,15 +37,19 @@ local jerkSmoother = newVectorSmoothing(30)
 local angAccSmoother = newVectorSmoothing(30)
 local angJerkSmoother = newVectorSmoothing(30)
 
-local slipSmoother = newTemporalSmoothingNonLinear(50)
+local slipSmoother = newTemporalSmoothingNonLinear(30)
+local overrevSmoother = newTemporalSmoothingNonLinear(30)
 
-local jerkFactor = 0.00001
-local angJerkFactor = 0.000001
+local jerkFactor = 0.000005
+local angJerkFactor = 0.0000005
 local slipFactor = 0.0001
+local overrevFactor = 0.000002
+local overrevMax = 0.0002
 
-local jerkDeadzone = 100
-local angJerkDeadzone = 1000
+local jerkDeadzone = 70
+local angJerkDeadzone = 700
 local slipDeadzone = 3
+local overrevDeadzone = -200
 
 local origFFBCalc = nop
 local ffiSensors = nil
@@ -62,16 +66,17 @@ local lastAngVel = nil
 local lastAngAcc = nil
 
 local totalSlip = 0
+local overrev = 0
 
 local function newFFBCalc(wheelDispl, wheelPos)
 	-- Filter out low values
-	local totalJerk = max(jerk:length()-jerkDeadzone, 0)
-	local totalAngJerk = max(angJerk:length()-angJerkDeadzone, 0)
-	local totalSlip = max(totalSlip-slipDeadzone, 0)
+	local totalJerk = max(jerk:length()-jerkDeadzone, 0)*jerkFactor
+	local totalAngJerk = max(angJerk:length()-angJerkDeadzone, 0)*angJerkFactor
+	local totalSlip = max(totalSlip-slipDeadzone, 0)*slipFactor
+	local totalOverrev = min(max(overrev - overrevDeadzone, 0)*overrevFactor, overrevMax)
 
 	-- Calculate new FFB value
-	local ffb = totalJerk*jerkFactor + totalAngJerk*angJerkFactor + totalSlip*slipFactor
-	
+	local ffb = totalJerk + totalAngJerk + totalSlip + totalOverrev
 	-- Pass new FFB value to the original function
 	return origFFBCalc(ffb, 0)
 end
@@ -109,8 +114,9 @@ local function onPhysicsStep(dt)
 			totalDownForce = totalDownForce + downForce
 		end
 	end
-
 	totalSlip = slipSmoother:get(totalSlip / (totalDownForce + 1e-25), dt)
+
+	overrev = overrevSmoother:get(electrics.values.rpm - electrics.values.maxrpm, dt)
 end
 
 local function onReset()
@@ -127,6 +133,13 @@ local function onReset()
 	lastAcc = nil
 	lastAngVel = nil
 	lastAngAcc = nil
+
+	accSmoother:reset()
+	jerkSmoother:reset()
+	angAccSmoother:reset()
+	angJerkSmoother:reset()
+	slipSmoother:reset()
+	overrevSmoother:reset()
 end
 
 local function setEnabled(enabled)
