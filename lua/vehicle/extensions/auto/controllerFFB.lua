@@ -37,17 +37,22 @@ local jerkSmoother = newVectorSmoothing(30)
 local angAccSmoother = newVectorSmoothing(30)
 local angJerkSmoother = newVectorSmoothing(30)
 
+local totalJerkSmoother = newTemporalSmoothing(0.01, 1000)
+
 local slipSmoother = newTemporalSmoothingNonLinear(30)
 local overrevSmoother = newTemporalSmoothingNonLinear(30)
 
-local jerkFactor = 0.000005
-local angJerkFactor = 0.0000005
-local slipFactor = 0.0001
+local jerkFactor = 0.00001
+local jerkMax = 0.001
+local angJerkFactor = 0.000001
+local angJerkMax = 0.001
+local slipFactor = 0.00005
+local slipMax = 0.0005
 local overrevFactor = 0.000002
 local overrevMax = 0.0002
 
-local jerkDeadzone = 70
-local angJerkDeadzone = 700
+local jerkDeadzone = 50
+local angJerkDeadzone = 500
 local slipDeadzone = 3
 local overrevDeadzone = -200
 
@@ -58,25 +63,18 @@ local pitchAVMul = 0
 local rollAVMul = 0
 local yawAVMul = 0
 
-local jerk = vec3()
+local totalJerk = 0
 local lastAcc = nil
 
-local angJerk = vec3()
 local lastAngVel = nil
 local lastAngAcc = nil
 
 local totalSlip = 0
-local overrev = 0
+local totalOverrev = 0
 
 local function newFFBCalc(wheelDispl, wheelPos)
-	-- Filter out low values
-	local totalJerk = max(jerk:length()-jerkDeadzone, 0)*jerkFactor
-	local totalAngJerk = max(angJerk:length()-angJerkDeadzone, 0)*angJerkFactor
-	local totalSlip = max(totalSlip-slipDeadzone, 0)*slipFactor
-	local totalOverrev = min(max(overrev - overrevDeadzone, 0)*overrevFactor, overrevMax)
-
 	-- Calculate new FFB value
-	local ffb = totalJerk + totalAngJerk + totalSlip + totalOverrev
+	local ffb = totalJerk + totalSlip + totalOverrev
 	-- Pass new FFB value to the original function
 	return origFFBCalc(ffb, 0)
 end
@@ -87,7 +85,7 @@ local function onPhysicsStep(dt)
 	-- Acceleration
 	local acc = accSmoother:get(vec3(ffiSensors.sensorX, ffiSensors.sensorY, ffiSensors.sensorZnonInertial), dt)
 	-- Jerk
-	jerk = jerkSmoother:get((acc - (lastAcc or acc))*invDt, dt)
+	local jerk = jerkSmoother:get((acc - (lastAcc or acc))*invDt, dt)
 	lastAcc = acc
 
 	-- Angular Velocity
@@ -97,11 +95,13 @@ local function onPhysicsStep(dt)
 	local angAcc = angAccSmoother:get((angVel - (lastAngVel or angVel))*invDt, dt)
 	lastAngVel = angVel
 	-- Angular jerk
-	angJerk = angJerkSmoother:get((angAcc - (lastAngAcc or angAcc))*invDt, dt)
+	local angJerk = angJerkSmoother:get((angAcc - (lastAngAcc or angAcc))*invDt, dt)
 	lastAngAcc = angAcc
 
+	totalJerk = totalJerkSmoother:get(clamp((jerk:length()-jerkDeadzone)*jerkFactor, 0, jerkMax) + clamp((angJerk:length()-angJerkDeadzone)*angJerkFactor, 0, angJerkMax), dt)
+
 	-- Wheel slip
-	totalSlip = 0
+	local slip = 0
 	local totalDownForce = 0
 	local lwheels = wheels.wheels
 	local wheelCount = tableSizeC(lwheels) - 1
@@ -110,13 +110,15 @@ local function onPhysicsStep(dt)
 		if not wd.isBroken then
 			local lastSlip = wd.lastSlip
 			local downForce = wd.downForceRaw
-			totalSlip = totalSlip + lastSlip * downForce
+			slip = slip + lastSlip * downForce
 			totalDownForce = totalDownForce + downForce
 		end
 	end
-	totalSlip = slipSmoother:get(totalSlip / (totalDownForce + 1e-25), dt)
+	slip = slipSmoother:get(slip / (totalDownForce + 1e-25) - slipDeadzone, dt)
+	totalSlip = clamp(slip*slipFactor, 0, slipMax)
 
-	overrev = overrevSmoother:get(electrics.values.rpm - electrics.values.maxrpm, dt)
+	local overrev = overrevSmoother:get((electrics.values.rpm or 0) - (electrics.values.maxrpm or 100000) - overrevDeadzone, dt)
+	totalOverrev = clamp(overrev*overrevFactor, 0, overrevMax)
 end
 
 local function onReset()
@@ -140,6 +142,7 @@ local function onReset()
 	angJerkSmoother:reset()
 	slipSmoother:reset()
 	overrevSmoother:reset()
+	totalJerkSmoother:reset()
 end
 
 local function setEnabled(enabled)
