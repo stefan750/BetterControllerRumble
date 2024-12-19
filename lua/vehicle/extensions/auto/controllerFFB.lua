@@ -37,19 +37,19 @@ local jerkSmoother = newVectorSmoothing(30)
 local angAccSmoother = newVectorSmoothing(30)
 local angJerkSmoother = newVectorSmoothing(30)
 
-local totalJerkSmoother = newTemporalSmoothing(0.01, 1000)
+local totalJerkSmoother = newTemporalSmoothing(0.05, 1000)
 
 local slipSmoother = newTemporalSmoothingNonLinear(30)
 local overrevSmoother = newTemporalSmoothingNonLinear(30)
 
-local jerkFactor = 0.00001
-local jerkMax = 0.001
-local angJerkFactor = 0.000001
-local angJerkMax = 0.001
-local slipFactor = 0.00005
-local slipMax = 0.0005
-local overrevFactor = 0.000002
-local overrevMax = 0.0002
+local jerkFactor = 0.00005
+local jerkMax = 0.005
+local angJerkFactor = 0.000005
+local angJerkMax = 0.005
+local slipFactor = 0.00025
+local slipMax = 0.0025
+local overrevFactor = 0.00001
+local overrevMax = 0.001
 
 local jerkDeadzone = 50
 local angJerkDeadzone = 500
